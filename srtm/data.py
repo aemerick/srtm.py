@@ -391,7 +391,15 @@ class GeoElevationData:
 
         """
         with EarthDataSession(self.EDuser, self.EDpass) as s:
-            response = s.get(url, timeout=5)
+            try:
+                response = s.get(url, timeout=self.timeout or mod_utils.DEFAULT_TIMEOUT)
+            except:
+                try:
+                    response = s.get(url, timeout=self.timeout or mod_utils.DEFAULT_TIMEOUT)
+                except:
+                    response = s.get(url, timeout=self.timeout or mod_utils.DEFAULT_TIMEOUT)
+
+
             response.raise_for_status()
             data = response.content
         return data
