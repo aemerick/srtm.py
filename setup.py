@@ -15,9 +15,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import distutils.core as mod_distutilscore
+from setuprools import setup
 
-mod_distutilscore.setup(
+setup(
     name = 'SRTM.py',
     version = '0.3.2',
     description = 'Python parser for the Shuttle Radar Topography Mission elevation data',
