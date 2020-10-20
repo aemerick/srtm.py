@@ -79,7 +79,7 @@ def get_data(srtm1: bool=True, srtm3: bool=True, version='v2.1a', fallback=True,
     if file_handler is None:
         file_handler = mod_data.FileHandler()
 
-    srtm1_files, srtm3_files = _get_urls(use_included_urls, file_handler)
+    srtm1_files, srtm3_files = _get_urls(use_included_urls, file_handler, timeout)
 
     if not srtm1: srtm1_files = {}
     if not srtm3: srtm3_files = {}
