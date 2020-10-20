@@ -26,10 +26,11 @@ import warnings as mod_warnings
 import json as mod_json
 import os as mod_os
 import os.path as mod_path
+import requests as mod_requests
 
 from . import utils as mod_utils
 
-import requests as mod_requests
+from typing import *
 
 # TODO Update this section to load data from pkg_resources
 package_location = __file__[:__file__.rfind(mod_path.sep)]
@@ -89,7 +90,8 @@ class GeoElevationData:
 
     def __init__(self, srtm1_files=None, srtm3_files=None, version='v2.1a',
                  fallback=True, leave_zipped=False, file_handler=None,
-                 batch_mode=False, EDuser='', EDpass=''):
+                 timeout: int = 0,
+                 batch_mode=False, EDuser='', EDpass='') -> None:
         """
         Initialize a new instance of GeoElevationData.
 
@@ -145,13 +147,14 @@ class GeoElevationData:
         # Deprecated init
         self.srtm1_files = srtm1_files
         self.srtm3_files = srtm3_files
-        self.files = {}
         # End deprecated init
+        # Lazy loaded files used in current app:
+        self.files: Dict[str, GeoElevationFile] = {}
+        self.timeout = timeout
 
     def _build_url(self, tilename, version):
         """
         Return the URL to for the given tilename and version.
-
         Use the tile_index to build up the correct URL for each version
         and tilename.
 
@@ -193,8 +196,8 @@ class GeoElevationData:
         else:
             return None
 
-    def get_elevation(self, latitude, longitude, approximate=None,
-                      version=None):
+    def get_elevation(self, latitude: float, longitude: float, approximate: bool=False,
+                      version=None) -> Optional[float]:
         """
         Return the elevation at the point specified.
 
@@ -227,6 +230,32 @@ class GeoElevationData:
 
         return geo_elevation_file.get_elevation(latitude, longitude,
                                                 approximate)
+
+    def _IDW(self, latitude: float, longitude: float, radius: float=1) -> Optional[float]:
+        """
+        Return the interpolated elevation at a point.
+
+        Load the correct tile for latitude and longitude given.
+        If the tile doesn't exist, return None. Otherwise,
+        call the tile's Inverse Distance Weighted function and
+        return the elevation.
+
+        Args:
+            latitude: float with the latitude in decimal degrees
+            longitude: float with the longitude in decimal degrees
+            radius: int of 1 or 2 indicating the approximate radius
+                of adjacent cells to include
+
+        Returns:
+            a float of the interpolated elevation with the same unit
+            as the .hgt file (meters)
+
+        """
+        tile = self.get_file(latitude, longitude)
+        if tile is None:
+            return None
+        return tile._InverseDistanceWeighted(latitude, longitude, radius)
+
 
     def fallback_version(self, version):
         """
@@ -276,7 +305,8 @@ class GeoElevationData:
             return None
         return None
 
-    def get_file(self, latitude, longitude):
+
+    def get_file(self, latitude: float, longitude: float) -> Optional["GeoElevationFile"]:
         """
         Deprecated.
 
@@ -296,18 +326,19 @@ class GeoElevationData:
             version = self.fallback_version(version)
         return tile
 
-    def retrieve_or_load_file_data(self, file_name):
+    def retrieve_or_load_file_data(self, file_name: str) -> Optional[bytes]:
         """Deprecated."""
         mod_warnings.warn("Use of retrieve_or_load_file_data is deprecated. Use load_tile instead", DeprecationWarning)
-        
+
         data_file_name = file_name
         zip_data_file_name = '{0}.zip'.format(file_name)
 
+        data: Optional[bytes] = None
         if self.file_handler.exists(data_file_name):
             return self.file_handler.read(data_file_name)
         elif self.file_handler.exists(zip_data_file_name):
-            data = self.file_handler.read(zip_data_file_name)
-            return mod_utils.unzip(data)
+            byts = self.file_handler.read(zip_data_file_name)
+            return mod_utils.unzip(byts)
 
         url = None
 
@@ -321,7 +352,7 @@ class GeoElevationData:
             return None
 
         try:
-            r = mod_requests.get(url, timeout=5)
+            r = mod_requests.get(url, timeout=self.timeout or mod_utils.DEFAULT_TIMEOUT)
         except mod_requests.exceptions.Timeout:
             raise Exception('Connection to %s failed (timeout)' % url)
         if r.status_code < 200 or 300 <= r.status_code:
@@ -347,6 +378,7 @@ class GeoElevationData:
     def _fetch(self, url):
         """
         Download the file.
+
 
         Download the given URL using the credentials stored in EDuser
         and EDpass
@@ -414,7 +446,7 @@ class GeoElevationData:
             return tile
         return None  # url is None or download failure
 
-    def get_file_name(self, latitude, longitude):
+    def get_file_name(self, latitude: float, longitude: float) -> Optional[str]:
         """Deprecated."""
         mod_warnings.warn("Use of get_file_name is deprecated. Use get_tilename instead", DeprecationWarning)
         file_name = self.get_tilename(latitude, longitude) + '.hgt'
@@ -439,27 +471,27 @@ class GeoElevationData:
 
         Returns:
             str of the tilename (may not be a valid tile)
-            
+
         """
         NS = "N" if latitude >= 0 else "S"
         EW = "E" if longitude >= 0 else "W"
         return (NS + str(int(abs(mod_math.floor(latitude)))).zfill(2) +
                 EW + str(int(abs(mod_math.floor(longitude)))).zfill(3))
 
-    def get_image(self, size, latitude_interval, longitude_interval, max_elevation, min_elevation=0,
-                  unknown_color = (255, 255, 255, 255), zero_color = (0, 0, 255, 255),
-                  min_color = (0, 0, 0, 255), max_color = (0, 255, 0, 255),
-                  mode='image'):
+    def get_image(self, size: Tuple[int, int], latitude_interval: Tuple[float, float], longitude_interval: Tuple[float, float], max_elevation: float, min_elevation: float=0,
+                  unknown_color: mod_utils.Color = mod_utils.Color(255, 255, 255, 255), zero_color: mod_utils.Color = mod_utils.Color(0, 0, 255, 255),
+                  min_color: mod_utils.Color = mod_utils.Color(0, 0, 0, 255), max_color: mod_utils.Color = mod_utils.Color(0, 255, 0, 255),
+                  mode: str='image') -> Any:
         """
         Returns a numpy array or PIL image.
         """
 
         if not size or len(size) != 2:
-            raise Exception('Invalid size %s' % size)
+            raise Exception('Invalid size %s' % (size, ))
         if not latitude_interval or len(latitude_interval) != 2:
-            raise Exception('Invalid latitude interval %s' % latitude_interval)
+            raise Exception('Invalid latitude interval %s' % (latitude_interval, ))
         if not longitude_interval or len(longitude_interval) != 2:
-            raise Exception('Invalid longitude interval %s' % longitude_interval)
+            raise Exception('Invalid longitude interval %s' % (longitude_interval, ))
 
         width, height = size
         width, height = int(width), int(height)
@@ -469,21 +501,21 @@ class GeoElevationData:
 
 
         if mode == 'array':
-            import numpy as np
+            import numpy as np # type: ignore
             array = np.empty((height,width))
             for row in range(height):
                 for column in range(width):
                     latitude  = latitude_from  + float(row) / height * (latitude_to  - latitude_from)
-                    longitude = longitude_from + float(column) / height * (longitude_to - longitude_from)
+                    longitude = longitude_from + float(column) / width * (longitude_to - longitude_from)
                     elevation = self.get_elevation(latitude, longitude)
                     array[row,column] = elevation
 
             return array
 
         elif mode == 'image':
-            try:    import Image as mod_image
-            except: from PIL import Image as mod_image
-            try:    import ImageDraw as mod_imagedraw
+            try:    import Image as mod_image # type: ignore
+            except: from PIL import Image as mod_image # type: ignore
+            try:    import ImageDraw as mod_imagedraw # type: ignore
             except: from PIL import ImageDraw as mod_imagedraw
 
             image = mod_image.new('RGBA', (width, height),
@@ -495,16 +527,16 @@ class GeoElevationData:
             for row in range(height):
                 for column in range(width):
                     latitude  = latitude_from  + float(row) / height * (latitude_to  - latitude_from)
-                    longitude = longitude_from + float(column) / height * (longitude_to - longitude_from)
+                    longitude = longitude_from + float(column) / width * (longitude_to - longitude_from)
                     elevation = self.get_elevation(latitude, longitude)
                     if elevation == None:
                         color = unknown_color
                     else:
-                        elevation_coef = (elevation - min_elevation) / float(max_elevation)
+                        elevation_coef = ((elevation or 0) - (min_elevation or 0)) / float(max_elevation)
                         if elevation_coef < 0: elevation_coef = 0
                         if elevation_coef > 1: elevation_coef = 1
                         color = mod_utils.get_color_between(min_color, max_color, elevation_coef)
-                        if elevation <= 0:
+                        if (elevation or 0) <= 0:
                             color = zero_color
                     draw.point((column, height - row), color)
 
@@ -512,7 +544,7 @@ class GeoElevationData:
         else:
             raise Exception('Invalid mode ' + mode)
 
-    def add_elevations(self, gpx, only_missing=False, smooth=False, gpx_smooth_no=0):
+    def add_elevations(self, gpx: Any, only_missing: bool=False, smooth: bool=False, gpx_smooth_no: int=0) -> None:
         """
         only_missing -- if True only points without elevation will get a SRTM value
 
@@ -521,13 +553,15 @@ class GeoElevationData:
         if gpx_smooth_no > 0 -- execute gpx.smooth(vertical=True)
         """
         if only_missing:
-            original_elevations = list(map(lambda point: point.elevation, gpx.walk(only_points=True)))
+            original_elevations = list(map(lambda point: point.elevation, gpx.walk(only_points=True))) # type: ignore
 
         if smooth:
             self._add_sampled_elevations(gpx)
         else:
             for point in gpx.walk(only_points=True):
-                point.elevation = self.get_elevation(point.latitude, point.longitude)
+                ele = self.get_elevation(point.latitude, point.longitude)
+                if ele is not None:
+                    point.elevation = ele
 
         for i in range(gpx_smooth_no):
             gpx.smooth(vertical=True, horizontal=False)
@@ -537,7 +571,7 @@ class GeoElevationData:
                 if original_elevation != None:
                     point.elevation = original_elevation
 
-    def _add_interval_elevations(self, gpx, min_interval_length=100):
+    def _add_interval_elevations(self, gpx: Any, min_interval_length: int=100) -> None:
         """
         Adds elevation on points every min_interval_length and add missing
         elevation between
@@ -559,14 +593,14 @@ class GeoElevationData:
                     previous_point = point
         gpx.add_missing_elevations()
 
-    def _add_sampled_elevations(self, gpx):
+    def _add_sampled_elevations(self, gpx: Any) -> None:
         # Use some random intervals here to randomize a bit:
         self._add_interval_elevations(gpx, min_interval_length=35)
-        elevations_1 = list(map(lambda point: point.elevation, gpx.walk(only_points=True)))
+        elevations_1 = list(map(lambda point: point.elevation, gpx.walk(only_points=True))) # type: ignore
         self._add_interval_elevations(gpx, min_interval_length=141)
-        elevations_2 = list(map(lambda point: point.elevation, gpx.walk(only_points=True)))
+        elevations_2 = list(map(lambda point: point.elevation, gpx.walk(only_points=True))) # type: ignore
         self._add_interval_elevations(gpx, min_interval_length=241)
-        elevations_3 = list(map(lambda point: point.elevation, gpx.walk(only_points=True)))
+        elevations_3 = list(map(lambda point: point.elevation, gpx.walk(only_points=True))) # type: ignore
 
         n = 0
         for point in gpx.walk(only_points=True):
@@ -586,20 +620,16 @@ class GeoElevationFile:
     it may need elevations from nearby files.
     """
 
-    file_name = None
-    url = None
 
-    latitude = None
-    longitude = None
-
-    data = None
-
-    def __init__(self, file_name, data, geo_elevation_data):
+    def __init__(self, file_name: str, data: bytes, geo_elevation_data: GeoElevationData) -> None:
         """ Data is a raw file contents of the file. """
 
+        self.url: Optional[str] = None
         self.geo_elevation_data = geo_elevation_data
         self.file_name = file_name
 
+        self.latitude: float = 0
+        self.longitude: float = 0
         self.parse_file_name_starting_position()
 
         self.data = data
@@ -610,22 +640,22 @@ class GeoElevationFile:
         self.resolution = 1.0 / (square_side - 1)
         self.square_side = int(square_side)
 
-    def get_row_and_column(self, latitude, longitude):
+    def get_row_and_column(self, latitude: float, longitude: float) -> Tuple[int, int]:
         return mod_math.floor((self.latitude + 1 - latitude) * float(self.square_side - 1)), \
                mod_math.floor((longitude - self.longitude) * float(self.square_side - 1))
 
-    def get_lat_and_long(self, row, column):
+    def get_lat_and_long(self, row: int, column: int) -> Tuple[float, float]:
         return self.latitude + 1 - row *  self.resolution, \
                self.longitude + column * self.resolution
 
-    def get_elevation(self, latitude, longitude, approximate=None):
+    def get_elevation(self, latitude: float, longitude: float, approximate: bool=False) -> Optional[float]:
         """
         If approximate is True then only the points from SRTM grid will be
         used, otherwise a basic aproximation of nearby points will be calculated.
         """
-        if not (self.latitude <= latitude < self.latitude + 1):
+        if not (self.latitude - self.resolution <= latitude < self.latitude + 1):
             raise Exception('Invalid latitude %s for file %s' % (latitude, self.file_name))
-        if not (self.longitude <= longitude < self.longitude + 1):
+        if not (self.longitude <= longitude < self.longitude + 1 + self.resolution):
             raise Exception('Invalid longitude %s for file %s' % (longitude, self.file_name))
 
         row, column = self.get_row_and_column(latitude, longitude)
@@ -635,7 +665,7 @@ class GeoElevationFile:
         else:
             return self.get_elevation_from_row_and_column(int(row), int(column))
 
-    def approximation(self, latitude, longitude):
+    def approximation(self, latitude: float, longitude: float) -> Optional[float]:
         """
         Dummy approximation with nearest points. The nearest the neighbour the
         more important will be its elevation.
@@ -678,21 +708,86 @@ class GeoElevationFile:
                    importance_3 / sum_importances + \
                    importance_4 / sum_importances - 1 ) < 0.000001
 
-        result = importance_1 / sum_importances * elevation_1 + \
-               importance_2 / sum_importances * elevation_2 + \
-               importance_3 / sum_importances * elevation_3 + \
-               importance_4 / sum_importances * elevation_4
+        if elevation_1 is not None and elevation_2 is not None and elevation_3 is not None and elevation_4 is not None:
+            return importance_1 / sum_importances * elevation_1 + \
+                importance_2 / sum_importances * elevation_2 + \
+                importance_3 / sum_importances * elevation_3 + \
+                importance_4 / sum_importances * elevation_4
 
-        return result
+        return None
 
-    def get_elevation_from_row_and_column(self, row, column):
+    def _InverseDistanceWeighted(self, latitude: float, longitude: float, radius: float=1) -> Optional[float]:
+        """
+        Return the Inverse Distance Weighted Elevation.
+
+        Interpolate the elevation of the given point using the inverse
+        distance weigthing algorithm (exp of 1) in the form:
+            sum((1/distance) * elevation)/sum(1/distance)
+            for each point in the matrix.
+        The matrix size is determined by the radius. A radius of 1 uses
+        5 points and a radius of 2 uses 13 points. The matrices are set
+        up to use cells adjacent to and including the one that contains
+        the given point. Any cells referenced by the matrix that are on
+        neighboring tiles are ignored.
+
+        Args:
+            latitude: float of the latitude in decimal degrees
+            longitude: float of the longitude in decimal degrees
+            radius: int of 1 or 2 indicating the size of the matrix
+
+        Returns:
+            a float of the interpolated elevation in the same units as
+            the underlying .hgt file (meters)
+
+        Exceptions:
+            raises a ValueError if an invalid radius is supplied
+
+        """
+        if radius == 1:
+            offsetmatrix: Any = (None, (0, 1), None,
+                           (-1, 0), (0, 0), (1, 0),
+                           None, (0, -1), None)
+        elif radius == 2:
+            offsetmatrix = (None, None, (0, 2), None, None,
+                            None, (-1, 1), (0, 1), (1, 1), None,
+                            (-2, 0), (-1, 0), (0, 0), (1, 0), (2, 0),
+                            None, (-1, -1), (0, -1), (1, -1), None,
+                            None, None, (0, -2), None, None)
+        else:
+            raise ValueError("Radius {} invalid, "
+                             "expected 1 or 2".format(radius))
+
+        row, column = self.get_row_and_column(latitude, longitude)
+        center_lat, center_long = self.get_lat_and_long(row, column)
+        if latitude == center_lat and longitude == center_long:
+            # return direct elev at point (infinite weight)
+            return self.get_elevation_from_row_and_column(int(row), int(column))
+        weights: float = 0
+        elevation: float = 0
+
+        for offset in offsetmatrix:
+            if (offset is not None and
+                0 <= row + offset[0] < self.square_side and
+                0 <= column + offset[1] < self.square_side):
+                cell = self.get_elevation_from_row_and_column(int(row + offset[0]),
+                                                              int(column + offset[1]))
+                if cell is not None:
+                    # does not need to be meters, anything proportional
+                    distance = mod_utils.distance(latitude, longitude,
+                                                  center_lat + float(offset[0])/(self.square_side-1),
+                                                  center_long + float(offset[1])/(self.square_side-1))
+                    weights += 1/distance
+                    elevation += cell/distance
+        return elevation/weights
+
+    def get_elevation_from_row_and_column(self, row: int, column: int) -> Optional[float]:
         i = row * (self.square_side) + column
         assert i < len(self.data) - 1
 
         #mod_logging.debug('{0}, {1} -> {2}'.format(row, column, i))
 
         unpacked = mod_struct.unpack(">h", self.data[i * 2 : i * 2 + 2])
-        result = None
+        result: Optional[float] = None
         if unpacked and len(unpacked) == 1:
             result = unpacked[0]
 
@@ -701,7 +796,7 @@ class GeoElevationFile:
 
         return result
 
-    def parse_file_name_starting_position(self):
+    def parse_file_name_starting_position(self) -> None:
         """ Returns (latitude, longitude) of lower left point of the file """
         groups = mod_re.findall('([NS])(\d+)([EW])(\d+)\.hgt', self.file_name)
 

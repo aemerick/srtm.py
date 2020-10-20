@@ -3,12 +3,9 @@ language: python
 # Use container-based infrastructure
 sudo: false
 
-
 python:
- - 2.7
- - 3.3
- - 3.4
- - 3.5
+ - 3.8
+ - 3.7
  - 3.6
 
 # Do not use these credentials in your project

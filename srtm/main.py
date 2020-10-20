@@ -21,15 +21,18 @@ import warnings as mod_warnings
 
 from . import data      as mod_data
 from . import retriever as mod_retriever
+from . import utils     as mod_utils
 
-# Deprecated URLs
-SRTM1_URL = 'http://dds.cr.usgs.gov/srtm/version2_1/SRTM1/'
-SRTM3_URL = 'http://dds.cr.usgs.gov/srtm/version2_1/SRTM3/'
+from typing import *
+
+SRTM1_URL = 'https://dds.cr.usgs.gov/srtm/version2_1/SRTM1/'
+SRTM3_URL = 'https://dds.cr.usgs.gov/srtm/version2_1/SRTM3/'
 
 
-def get_data(srtm1=None, srtm3=None, version='v2.1a', fallback=True,
-             leave_zipped=False, file_handler=None,
-             use_included_urls=True, batch_mode=False):
+
+def get_data(srtm1: bool=True, srtm3: bool=True, version='v2.1a', fallback=True,
+             leave_zipped: bool=False, file_handler: Optional[mod_utils.FileHandler]=None,
+             use_included_urls: bool=True, batch_mode: bool=False, local_cache_dir: str = "", timeout: int = 0) -> mod_data.GeoElevationData:
     """
     Get the utility object for querying elevation data.
 
@@ -39,11 +42,11 @@ def get_data(srtm1=None, srtm3=None, version='v2.1a', fallback=True,
     version (str) options are-
         v1.1a, v1.3a, v2.1a, v2.3a, v2.3as, v3.1a, v3.3a, v3.3as
         See GeoElevationData.__init__ docstring for more detail
-        
+
     fallback (bool) determines whether to try the next version if
     get_elevation fails. See GeoElevationData.fallback_version docstring
     for more detail
-        
+
     If you need to change the way the files are saved locally (for example if
     you need to save them locally) -- change the file_handler. See
     srtm.data.FileHandler.
@@ -82,23 +85,23 @@ def get_data(srtm1=None, srtm3=None, version='v2.1a', fallback=True,
     if not srtm3: srtm3_files = {}
 
     return mod_data.GeoElevationData(srtm1_files, srtm3_files, file_handler=file_handler,
-                                     leave_zipped=leave_zipped, batch_mode=batch_mode)
+                                     leave_zipped=leave_zipped, batch_mode=batch_mode,
+                                     timeout=timeout)
 
-def _get_urls(use_included_urls, file_handler):
+def _get_urls(use_included_urls: bool, file_handler: mod_utils.FileHandler, timeout: int) -> Tuple[Dict[str, str], Dict[str, str]]:
     files_list_file_name = 'list.json'
     try:
         urls_json = _get_urls_json(use_included_urls, file_handler)
         return urls_json['srtm1'], urls_json['srtm3']
     except:
-        srtm1_files = mod_retriever.retrieve_all_files_urls(SRTM1_URL)
-        srtm3_files = mod_retriever.retrieve_all_files_urls(SRTM3_URL)
+        srtm1_files = mod_retriever.retrieve_all_files_urls(SRTM1_URL, timeout)
+        srtm3_files = mod_retriever.retrieve_all_files_urls(SRTM3_URL, timeout)
 
-        file_handler.write(files_list_file_name,
-                           mod_json.dumps({'srtm1': srtm1_files, 'srtm3': srtm3_files}, sort_keys=True, indent=4))
+        file_handler.write(files_list_file_name, mod_json.dumps({'srtm1': srtm1_files, 'srtm3': srtm3_files}, sort_keys=True, indent=4).encode())
 
         return srtm1_files, srtm3_files
 
-def _get_urls_json(use_included_urls, file_handler):
+def _get_urls_json(use_included_urls: bool, file_handler: mod_utils.FileHandler) -> Any:
     if use_included_urls:
         with open(mod_data.DEFAULT_LIST_JSON, 'r') as f:
             return mod_json.loads(f.read())
@@ -106,4 +109,3 @@ def _get_urls_json(use_included_urls, file_handler):
     files_list_file_name = 'list.json'
     contents = file_handler.read(files_list_file_name)
     return mod_json.loads(contents)
-

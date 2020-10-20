@@ -19,7 +19,7 @@ from setuprools import setup
 
 setup(
     name = 'SRTM.py',
-    version = '0.3.2',
+    version = '0.3.6',
     description = 'Python parser for the Shuttle Radar Topography Mission elevation data',
     license = 'Apache License, Version 2.0',
     author = 'Tomo Krajina',
@@ -30,9 +30,9 @@ setup(
     include_package_data = True,
     classifiers = [
         "Programming Language :: Python",
-        "Programming Language :: Python :: 2",
+        "Programming Language :: Python :: 3",
     ],
-    requires=['requests'],
+    install_requires=['requests'],
     scripts=['gpxelevations']
 )
 

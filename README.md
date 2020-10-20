@@ -14,7 +14,13 @@ There is also a Golang port of this library: [go-elevations](https://github.com/
 
     import srtm
     elevation_data = srtm.get_data()
-    print 'CGN Airport elevation (meters):', elevation_data.get_elevation(50.8682, 7.1377)
+    print('CGN Airport elevation (meters):', elevation_data.get_elevation(50.8682, 7.1377))
+
+Cache files with urls of all SRTM files are generated in your HOME directory. In case, you need another location:
+
+    import srtm
+    elevation_data = srtm.get_data(local_cache_dir="mydir")
+    print('CGN Airport elevation (meters):', elevation_data.get_elevation(50.8682, 7.1377))
 
 ## GPS Tracks
 
